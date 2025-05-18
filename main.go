@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -21,7 +20,7 @@ type TickMsg struct {
 type model struct {
 	width    int
 	Filename string
-	Source   io.ReadCloser
+	File     *os.File
 	Scanner  *bufio.Scanner
 	Speed    int
 	Word     int
@@ -32,16 +31,27 @@ type model struct {
 }
 
 func getModel(filename string) model {
-	file, err := os.Open(filename)
-	scanner := bufio.NewScanner(file)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to open file: %v", err)
-		os.Exit(1)
+	var scanner *bufio.Scanner
+	var file *os.File = nil
+	var err error
+
+	if filename != "" {
+		file, err = os.Open(filename)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to open file: %v", err)
+			os.Exit(1)
+		}
+		scanner = bufio.NewScanner(file)
+	} else {
+		filename = "STDIN"
+		file = nil
+		scanner = bufio.NewScanner(os.Stdin)
 	}
+
 	return model{
 		Filename: filename,
 		Scanner:  scanner,
-		Source:   file,
+		File:     file,
 		Speed:    250,
 		Word:     0,
 		Message:  "",
@@ -56,16 +66,26 @@ func (m model) Init() tea.Cmd {
 
 func (m *model) nextLine() {
 	if m.Scanner == nil {
+		m.Message = "There is no Scanner"
+		m.Paused = true
 		return
 	}
 
 	if !m.Scanner.Scan() {
-		err := m.Source.Close()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Aw shucks: %v", err)
-			os.Exit(1)
+
+		if m.File == nil {
+			m.Message = "No file: Releasing Scanner"
+			m.Scanner = nil
+		} else {
+			_, err := m.File.Seek(0, 0)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to seek to start of file: %v\n", err)
+				os.Exit(1)
+			}
+			m.Message = "Resetting Scanner"
+			m.Scanner = bufio.NewScanner(m.File)
 		}
-		m.Scanner = nil
+
 		m.Line = []string{"End of file."}
 		m.Paused = true
 		return
@@ -114,8 +134,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.nextWord()
 		case "up":
 			m.Speed++
+		case "shift+up":
+			m.Speed += 10
 		case "down":
 			m.Speed--
+			if m.Speed <= 0 {
+				m.Speed = 1
+			}
+		case "shift+down":
+			m.Speed -= 10
 			if m.Speed <= 0 {
 				m.Speed = 1
 			}
@@ -154,7 +181,11 @@ func (m model) View() string {
 }
 
 func main() {
-	p := tea.NewProgram(getModel("LICENSE"))
+	filename := ""
+	if len(os.Args) > 1 {
+		filename = os.Args[1]
+	}
+	p := tea.NewProgram(getModel(filename))
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Holy moly: %v", err)
 		os.Exit(1)
