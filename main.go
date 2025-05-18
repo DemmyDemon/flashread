@@ -11,6 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const DEBUG = false
+
 type TickMsg struct {
 	time time.Time
 	id   int
@@ -64,7 +66,8 @@ func (m *model) nextLine() {
 			os.Exit(1)
 		}
 		m.Scanner = nil
-		m.Line = []string{"End", "of", "file"}
+		m.Line = []string{"End of file."}
+		m.Paused = true
 		return
 	}
 
@@ -86,8 +89,7 @@ func (m *model) nextWord() {
 func (m model) tick(_ time.Time) tea.Msg {
 	return m.tickCmd()
 }
-func (m *model) tickCmd() tea.Msg {
-	m.ticker++
+func (m model) tickCmd() tea.Msg {
 	return TickMsg{
 		time: time.Now(),
 		id:   m.ticker,
@@ -111,36 +113,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab":
 			m.nextWord()
 		case "up":
-			if !m.Paused {
-				m.Speed++
-			}
+			m.Speed++
 		case "down":
 			m.Speed--
 			if m.Speed <= 0 {
 				m.Speed = 1
-				m.Paused = true
 			}
 		default:
 			m.Message = msg.String()
 		}
 	case TickMsg:
-		if msg.id != m.ticker && m.ticker != 0 {
-			m.Message = fmt.Sprintf("%d != %d", msg.id, m.ticker)
+		if msg.id != m.ticker {
 			return m, nil
 		}
 		if !m.Paused {
 			m.nextWord()
 		}
 		speed := time.Duration(60_000_000_000 / m.Speed) // Words per minute, in nanoseconds
+		m.ticker++
 		return m, tea.Tick(speed, m.tick)
 	}
 	return m, nil
 }
 
 func (m model) View() string {
-	speed := "Paused (Space to resume)"
+	speed := fmt.Sprintf("Paused (Space to resume at %dwpm)", m.Speed)
 	if !m.Paused {
-		speed = fmt.Sprintf("Speed: %d (Space to pause)", m.Speed)
+		speed = fmt.Sprintf("Speed: %dwpm (Space to pause)", m.Speed)
 	}
 	word := m.Line[m.Word]
 	padwidth := (m.width / 2) - (len(word) / 2)
@@ -148,7 +147,10 @@ func (m model) View() string {
 		padwidth = 0
 	}
 	word = fmt.Sprintf("%s%s", strings.Repeat(" ", padwidth), word)
-	return fmt.Sprintf("Reading %s\n\n%s\n\n%s\n%s", m.Filename, word, speed, m.Message)
+	if DEBUG {
+		return fmt.Sprintf("Reading %s\n\n%s\n\n%s\n%s", m.Filename, word, speed, m.Message)
+	}
+	return fmt.Sprintf("Reading %s\n\n%s\n\n%s", m.Filename, word, speed)
 }
 
 func main() {
